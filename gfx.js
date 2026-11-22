@@ -244,7 +244,8 @@ export function panel(ctx, x, y, w, h, { fill = C.panel, stroke = C.dark, r = 22
   ctx.restore()
 }
 
-export function text(ctx, str, x, y, { size = 28, weight = 700, color = C.ink, align = 'center', base = 'middle', outline = 0, outlineColor = C.dark } = {}) {
+/** Text; `max` (px) squeezes it to fit a width instead of overflowing. */
+export function text(ctx, str, x, y, { size = 28, weight = 700, color = C.ink, align = 'center', base = 'middle', outline = 0, outlineColor = C.dark, max } = {}) {
   ctx.font = font(weight, size)
   ctx.textAlign = align
   ctx.textBaseline = base
@@ -252,10 +253,12 @@ export function text(ctx, str, x, y, { size = 28, weight = 700, color = C.ink, a
     ctx.lineJoin = 'round'
     ctx.lineWidth = outline
     ctx.strokeStyle = outlineColor
-    ctx.strokeText(str, x, y)
+    if (max) ctx.strokeText(str, x, y, max)
+    else ctx.strokeText(str, x, y)
   }
   ctx.fillStyle = color
-  ctx.fillText(str, x, y)
+  if (max) ctx.fillText(str, x, y, max)
+  else ctx.fillText(str, x, y)
 }
 
 /** A medal disc; level 0 draws an empty slot. */

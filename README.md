@@ -1,6 +1,6 @@
 # Motion Lab
 
-Turn your phone into a motion controller and test it across six quick stations: tilt a marble through mazes, swing for home runs, flick to slash fruit, shake a maraca on the beat and steer a kart with your phone as the wheel, with a live Sensor Bench showing exactly what your phone sends.
+Turn your phone into a motion controller and test it across seven quick stations: tilt a marble through mazes, swing for home runs, flick to slash fruit, shake a maraca on the beat, steer a kart with your phone as the wheel and use it as a light gun, with a live Sensor Bench showing exactly what your phone sends.
 
 ## Play
 
@@ -11,6 +11,7 @@ Turn your phone into a motion controller and test it across six quick stations: 
 |---|---|
 | `npm run dev` | Play locally with live reload |
 | `npm run check` | Headless play test + art render (run before pushing) |
+| `npm test` | Station and motion tests (Node's built-in runner, no install needed) |
 
 Plays with a controller, keyboard, mouse or touch. Agents: rules are in [`AGENTS.md`](AGENTS.md); the design brief is [`DESIGN.md`](DESIGN.md).
 

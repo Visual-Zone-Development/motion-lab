@@ -4,8 +4,8 @@
     <meta charset="utf-8" />
     <!-- Motion Lab's phone screen: the phone is a motion controller. createPhoneMotion() reads
          every sensor event and sends held input to the TV (controller.input { tb, tg, ta, u, gx,
-         gy, m, f, st, still, ph }: tilt, "up", gyro totals, strength, the button, motion state,
-         stillness and sensor stats). It detects swings and shakes here at the full sensor rate and
+         gy, m, f, fc, ft, st, still, ph }: tilt, "up", gyro totals, strength, the button, its
+         press count and last press time, motion state, stillness and sensor stats). It detects swings and shakes here at the full sensor rate and
          sends each with its moment on this phone's clock (controller.send { swing: { dir, p, m, pt } });
          the TV's pings carry the clock check back. A swing meter shows strength against the
          threshold. Without motion sensors (plain http, a desktop browser, permission denied) it
@@ -57,6 +57,16 @@
       .dpad .right { grid-area: 2 / 3; } .dpad .down { grid-area: 3 / 2; }
       .back { background: #9aa6d6; }
       .pause { background: #9aa6d6; }
+      /* Trigger layout (Blaster Range): the phone held sideways in both hands like a light gun;
+         the whole middle of the screen is the trigger, so either thumb can fire without looking. */
+      main.trigger { max-width: none; padding-top: 10px; gap: 10px; }
+      main.trigger .hint { display: none; }
+      main.trigger h1 { font-size: 22px; }
+      main.trigger .card { padding: 8px 14px; }
+      main.trigger .stage { align-items: stretch; }
+      main.trigger #big { width: 100%; flex: 1; aspect-ratio: auto; min-height: 0; border-radius: 28px; font-size: 52px; box-shadow: 0 8px 0 #0a0f22; }
+      main.trigger #big.down { box-shadow: 0 2px 0 #0a0f22; }
+      main.trigger #meter, main.trigger #swing { display: none; }
       [hidden] { display: none !important; }
     </style>
   </head>
@@ -320,6 +330,9 @@
       // ==== end phone motion =====================================================================
 
       let fire = false
+      let fireCount = 0 // every trigger press, so the TV never misses a quick tap
+      let fireAt = 0 // the last press, on this phone's clock (ms)
+      const fingers = new Set()
       let swingText = ''
       let swingTimer = 0
       let touchTilt = null // the touch pad's pretend tilt
@@ -356,6 +369,8 @@
           ...(pm.gyro.on ? { gx: round(pm.gyro.x, 100), gy: round(pm.gyro.y, 100) } : {}),
           m: round(pm.m),
           f: fire,
+          fc: fireCount,
+          ft: fireAt,
           st,
           ...(st === 'touch' ? { why: pm.state.slice(6) } : {}),
           still: st !== 'on' || pm.still,
@@ -402,18 +417,26 @@
 
       // ---- buttons ----
       const big = $('big')
-      const press = (down) => (e) => {
+      // Each finger that lands is a press, even while another rests on the button.
+      big.addEventListener('pointerdown', (e) => {
         e.preventDefault()
-        if (fire === down) return
-        fire = down
-        big.classList.toggle('down', down)
-        if (down) controller.vibrate(12)
+        fingers.add(e.pointerId)
+        fireCount++
+        fireAt = round(performance.now())
+        fire = true
+        big.classList.add('down')
+        controller.vibrate(12)
+        send()
+      })
+      const release = (e) => {
+        if (!fingers.delete(e.pointerId) || fingers.size) return
+        fire = false
+        big.classList.remove('down')
         send()
       }
-      big.addEventListener('pointerdown', press(true))
-      big.addEventListener('pointerup', press(false))
-      big.addEventListener('pointercancel', press(false))
-      big.addEventListener('pointerleave', press(false))
+      big.addEventListener('pointerup', release)
+      big.addEventListener('pointercancel', release)
+      big.addEventListener('pointerleave', release)
       for (const b of [$('center'), $('take')]) b.addEventListener('pointerdown', (e) => e.preventDefault())
       // Menu buttons: the TV treats them like its own D-pad, A, B and Start.
       for (const b of document.querySelectorAll('[data-nav]')) {
@@ -502,8 +525,9 @@
         const [label, cls] = STATES[st] ?? [st, '']
         $('state').textContent = label
         $('state').className = `chip ${cls}`
-        $('main').className = pm.state === 'ask' ? 'ask' : ''
         const standby = mine.role === 'standby'
+        const trigger = pub.layout === 'trigger' && Boolean(pub.btn) && !standby && pub.mode === 'play'
+        $('main').className = [pm.state === 'ask' ? 'ask' : '', trigger ? 'trigger' : ''].join(' ').trim()
         $('title').textContent = standby ? 'Another phone is in control' : pub.title ?? 'Motion Lab'
         $('hint').textContent = standby ? 'Tap below to use this phone instead.' : pub.hint ?? 'Look at the screen.'
         $('take').hidden = !standby
