@@ -1,12 +1,15 @@
 // One motion interface for every station, fed by the active phone or by a stand-in:
 //   motion.tilt.x / .y     -1..1, calibrated (phone tilt, or the left stick / arrows / WASD)
 //   motion.fireHeld / firePressed   the phone's on-screen button, or a
+//   motion.fireAt          when this frame's press happened (seconds, TV clock): the phone stamps
+//                          each trigger press, so a shot can be judged where things were then
+//   motion.gyro            gyro aiming like a mouse: { dx, dy } degrees turned this frame
 //   motion.swings          this frame's swings: { dir, power 0..1, t (seconds, TV clock), src, tap?, x?, y? }
 //                          phone flicks and shakes, or a / d-pad / right-stick flick / mouse or touch swipe and tap
 //
 // The phone (controller.html) sends held input ≈30 times a second ({ tb, tg, ta } tilt in degrees,
-// u its "up" in screen axes, gx/gy gyro totals, m strength, f the button, st motion state, still,
-// ph sensor stats) and detects swings itself at the full sensor rate, sending
+// u its "up" in screen axes, gx/gy gyro totals, m strength, f the button, fc/ft its press count
+// and the last press's moment on the phone's clock, st motion state, still, ph sensor stats) and detects swings itself at the full sensor rate, sending
 // { swing: { dir, p, m, pt } } with pt the swing's moment on the phone's clock. The TV pings the
 // phone and keeps the fastest round trip of the last few: that one shows the clock difference
 // best, so phone times turn into TV times to within a few ms (clock sync, like NTP).
@@ -64,6 +67,9 @@ export function createMotion({ party, input, settings, save, TUNING, sfx, isBloc
   let aimArmed = true
   /** Phone swings arrive between frames; they join the next frame's swings. */
   const pending = []
+  let gyroLast = null
+  const gyroOwed = { x: 0, y: 0 }
+  let fireCount = null
   const smooth = ['tx', 'ty'].reduce((o, k) => ((o[k] = oneEuro(T.filterMin, T.filterBeta)), o), {})
   smooth.wh = oneEuro(T.wheelFilter, T.filterBeta)
 
@@ -77,6 +83,14 @@ export function createMotion({ party, input, settings, save, TUNING, sfx, isBloc
      * while the phone lies too flat to read.
      */
     wheel: null,
+    /**
+     * Gyro aiming like a mouse: degrees the phone turned this frame ({ dx, dy }, right/down
+     * positive), already tightened and smoothed on the phone; null until the phone sends it.
+     * Bursts from the network are played out over TUNING.motion.gyroSpread so a sight glides.
+     */
+    gyro: null,
+    /** Turning that has arrived but not been played out yet (degrees): where a sight is headed. */
+    gyroAhead: { x: 0, y: 0 },
     /** Bumped on every re-center. */
     centered: 0,
     /** Raw angles from the phone, and the neutral pose they're measured from. */
@@ -97,6 +111,7 @@ export function createMotion({ party, input, settings, save, TUNING, sfx, isBloc
     phoneState: 'none', // none | on | ask | denied | unsupported | touch | waiting
     fireHeld: false,
     firePressed: false,
+    fireAt: 0,
     swings: [],
     rtt: 0,
     hz: 0,
@@ -174,6 +189,7 @@ export function createMotion({ party, input, settings, save, TUNING, sfx, isBloc
       motion.swings.push(...pending)
       pending.length = 0
       motion.firePressed = false
+      motion.fireAt = t
 
       // Keep a phone in charge: the first connected one if the active one left.
       if (!motion.phone?.connected) {
@@ -236,12 +252,40 @@ export function createMotion({ party, input, settings, save, TUNING, sfx, isBloc
         const zero = tiltAngles(motion.neutral.u ?? upOf(motion.neutral.b, motion.neutral.g))
         motion.tilt.x = smooth.tx.step(clamp((now.x - zero.x) / range, -1, 1), dt)
         motion.tilt.y = smooth.ty.step(clamp(wrap(now.y - zero.y) / range, -1, 1), dt)
+        if (typeof inp.gx === 'number' && typeof inp.gy === 'number') {
+          const dx = inp.gx - (gyroLast?.x ?? inp.gx)
+          const dy = inp.gy - (gyroLast?.y ?? inp.gy)
+          // A jump this big is a reconnect or a reset, not a movement.
+          if (Math.abs(dx) < 90 && Math.abs(dy) < 90) {
+            gyroOwed.x += dx
+            gyroOwed.y += dy
+          }
+          gyroLast = { x: inp.gx, y: inp.gy }
+          const k = 1 - Math.exp(-dt / T.gyroSpread)
+          motion.gyro = { dx: gyroOwed.x * k, dy: gyroOwed.y * k }
+          gyroOwed.x -= motion.gyro.dx
+          gyroOwed.y -= motion.gyro.dy
+          motion.gyroAhead = { x: gyroOwed.x, y: gyroOwed.y }
+        } else gyroStop()
         motion.source = 'phone'
         motion.fireHeld = Boolean(inp.f)
-        if (party.pressed(id, 'f')) motion.firePressed = true
+        // The trigger: a press count catches every tap, even one shorter than a network update
+        // or made while another finger rests on the button. Older phones only send f.
+        if (typeof inp.fc === 'number') {
+          if (fireCount !== null && inp.fc !== fireCount) {
+            motion.firePressed = true
+            motion.fireAt = phoneTime(inp.ft, inp.age)
+          }
+          fireCount = inp.fc
+        } else if (party.pressed(id, 'f')) {
+          motion.firePressed = true
+          motion.fireAt = t - motion.lag
+        }
       } else {
         motion.tilt.x = motion.tilt.y = 0
         motion.wheel = null
+        gyroStop()
+        fireCount = null
         for (const f of Object.values(smooth)) f.reset()
         motion.fireHeld = false
         motion.source = 'stick'
@@ -300,12 +344,24 @@ export function createMotion({ party, input, settings, save, TUNING, sfx, isBloc
       if (s && !isBlocked()) {
         const dir = DIRS.includes(s.dir) ? s.dir : null
         // On the phone's clock when we have the clock check, otherwise from the delay estimate.
-        const t = typeof s.pt === 'number' && motion.clockOff !== null ? Math.min(now(), s.pt / 1000 - motion.clockOff) : now() - motion.lag - (Number(s.age) || 0) / 1000
+        const t = phoneTime(s.pt, s.age)
         const swing = { dir, power: clamp(Number(s.p) || 0, 0, 1), m: Number(s.m) || 0, t, src: 'phone', raw: s.raw }
         pending.push(swing)
         log(swing)
       }
     }
+  }
+
+  /** A moment on the phone's clock (ms) as TV time: by the clock check, else the delay estimate. */
+  function phoneTime(pt, age) {
+    if (typeof pt === 'number' && motion.clockOff !== null) return Math.min(now(), pt / 1000 - motion.clockOff)
+    return now() - motion.lag - (Number(age) || 0) / 1000
+  }
+  function gyroStop() {
+    motion.gyro = null
+    motion.gyroAhead = { x: 0, y: 0 }
+    gyroLast = null
+    gyroOwed.x = gyroOwed.y = 0
   }
 
   function push(s) {

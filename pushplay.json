@@ -2,8 +2,8 @@
   "$schema": "https://raw.githubusercontent.com/Visual-Zone-Development/pushplay-kit/v1/schema/manifest.schema.json",
   "id": "motion-lab",
   "name": "Motion Lab",
-  "description": "Turn your phone into a motion controller and test it across six quick stations: tilt a marble through mazes, swing for home runs, flick to slash fruit, shake a maraca on the beat and steer a kart with your phone as the wheel, with a live Sensor Bench showing exactly what your phone sends.",
-  "version": "1.8.1",
+  "description": "Turn your phone into a motion controller and test it across seven quick stations: tilt a marble through mazes, swing for home runs, flick to slash fruit, shake a maraca on the beat, steer a kart with your phone as the wheel and use it as a light gun, with a live Sensor Bench showing exactly what your phone sends.",
+  "version": "1.9.0",
   "entry": {
     "web": "index.html"
   },
@@ -24,7 +24,8 @@
     "motion controls",
     "arcade",
     "sports",
-    "score attack"
+    "score attack",
+    "shooting"
   ],
   "party": true
 }

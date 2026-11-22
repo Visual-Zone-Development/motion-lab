@@ -23,6 +23,7 @@ import derby from './stations/derby.js'
 import slash from './stations/slash.js'
 import rhythm from './stations/rhythm.js'
 import kart from './stations/kart.js'
+import blaster from './stations/blaster.js'
 
 const ID = 'motion-lab'
 
@@ -41,6 +42,7 @@ const TUNING = {
     filterBeta: 0.6, // how quickly fast movement cuts through the smoothing
     wheelRange: 70, // degrees of wheel turn for full lock
     wheelFilter: 2.2, // Hz: the wheel is smoothed less than tilt, so steering stays quick
+    gyroSpread: 0.03, // s over which a burst of gyro readings is played out (smooths network bursts)
     centerWait: 1.5, // s to wait for a still phone before re-centering anyway
     clockSamples: 8, // clock checks kept; the fastest round trip of these sets the clock difference
     fullSwing: 32, // m/s² for a full-power swing
@@ -55,9 +57,13 @@ const TUNING = {
   derby: { pitches: 10, waitTime: 1.1, windup: 0.55, flightStart: 1.15, flightEnd: 0.72, camera: 7, distance: 18, window: 0.24, sweet: 0.05, learn: 0.3, learnMax: 0.25, minDist: 30, maxDist: 165, fence: 110, foulAngle: 0.8, foulAt: 0.9, medals: [350, 700, 1000] },
   slash: { time: 60, spawnStart: 1.5, spawnEnd: 0.55, gravity: 620, doubleAfter: 22, goldChance: 0.08, points: 10, comboStep: 5, medals: [250, 550, 900] },
   rhythm: { bpm: 104, bars: 30, countIn: 8, speed: 430, perfect: 0.09, good: 0.18, bigPower: 0.5, learn: 0.25, medals: [0.55, 0.75, 0.9] },
+  // blaster: pxX/pxY are sight pixels per degree the phone turns (±13° spans the screen across);
+  // sticky slows the sight over a target; slack (px) and bullseye (share of the radius) judge hits;
+  // rewindMax (s) is the most a shot is judged in the past, to make up for network lag
+  blaster: { time: 60, spawn: 1.0, spawnEnd: 0.55, maxUp: 4, stay: 2.2, stayEnd: 1.3, slide: 110, slideEnd: 230, radius: 46, goldChance: 0.12, botAfter: 12, botChance: 0.14, botPenalty: 150, points: 100, bullseye: 0.3, bullseyeBonus: 50, comboStep: 0.1, comboCap: 10, slack: 16, sticky: 0.6, pxX: 50, pxY: 55, stickSpeed: 950, pointerHold: 0.8, cooldown: 0.12, rewindMax: 0.3, medals: [5000, 12500, 16000] },
   kart: { time: 75, maxSpeed: 330, minSpeed: 90, accel: 260, brake: 480, grassSpeed: 0.45, grassDrag: 3, turn: 3.1, turnFull: 190, brakeTurn: 1.35, steerEase: 12, grip: 7, gripGrass: 2.5, width: 110, coinGroups: 6, coinRadius: 26, coinScore: 10, lapScore: 100, medals: [500, 800, 1100] }
 }
-const STATIONS = [bench, maze, derby, slash, rhythm, kart]
+const STATIONS = [bench, maze, derby, slash, rhythm, kart, blaster]
 for (const s of STATIONS) {
   s.medals = TUNING[s.id]?.medals ?? []
   s.medalFor ??= (score) => medalBy(s.medals)(score)
@@ -163,10 +169,11 @@ const LOBBY_START = { x: 900, y: 630, w: 310, h: 64 }
 const LOBBY_BACK = { x: 560, y: 630, w: 310, h: 64 }
 const inside = (p, r) => p.x >= r.x && p.x <= r.x + r.w && p.y >= r.y && p.y <= r.y + r.h
 
-// Hub: the six stations, then Connect phone and Settings, in a 4 × 2 grid.
+// Hub: the stations, then Connect phone and Settings, in a 5 × 2 grid.
 const TILES = [...STATIONS.map((s) => ({ id: s.id, station: s })), { id: 'phone' }, { id: 'settings' }]
-const TILE = { w: 270, h: 250, gap: 24, x0: 64, y0: 170 }
-const tileRect = (i) => ({ x: TILE.x0 + (i % 4) * (TILE.w + TILE.gap), y: TILE.y0 + Math.floor(i / 4) * (TILE.h + TILE.gap), w: TILE.w, h: TILE.h })
+const COLS = 5
+const TILE = { w: 220, h: 250, gap: 18, x0: 54, y0: 170 }
+const tileRect = (i) => ({ x: TILE.x0 + (i % COLS) * (TILE.w + TILE.gap), y: TILE.y0 + Math.floor(i / COLS) * (TILE.h + TILE.gap), w: TILE.w, h: TILE.h })
 
 input.onPause(() => {
   if (state.screen === 'playing' || state.screen === 'lobby') pause()
@@ -374,8 +381,14 @@ function playUpdate(dt) {
 
 function hubUpdate() {
   let sel = state.hubSel
-  if (ui.navX) sel = (sel + ui.navX + 8) % 8
-  if (ui.navY) sel = (sel + ui.navY * 4 + 8) % 8
+  const n = TILES.length
+  if (ui.navX) sel = (sel + ui.navX + n) % n
+  // Up/down change row; the last row may be short, so moving into a gap lands on the last tile.
+  if (ui.navY) {
+    const slots = Math.ceil(n / COLS) * COLS
+    sel = (sel + ui.navY * COLS + slots) % slots
+    if (sel >= n) sel = n - 1
+  }
   const p = input.pointer
   let chosen = ui.pressed('a') ? sel : -1
   const picked = TILES.findIndex((t) => t.id === phonePick)
@@ -411,6 +424,8 @@ function publish() {
   party.public.title = s ? s.name : state.screen === 'playing' ? 'Choose a station' : 'Motion Lab'
   party.public.hint = s ? s.phoneHint : 'Hold the phone in portrait, screen facing you.'
   party.public.btn = s && state.screen === 'playing' ? s.btn ?? null : null
+  // 'trigger': the phone's button fills its screen, for holding it sideways like a light gun.
+  party.public.layout = s && state.screen === 'playing' ? s.layout ?? null : null
   // 'play' during a round (motion, station button, Pause); 'menu' everywhere else (D-pad, OK, Back).
   const round = state.screen === 'playing' && state.run
   party.public.mode = round ? (state.station.noScore ? 'bench' : 'play') : 'menu'
@@ -474,7 +489,7 @@ function drawTitle() {
   ctx.restore()
   phoneGlyph(ctx, W / 2, 250, 90, 160, { rot, screen: C.orange })
   text(ctx, 'MOTION LAB', W / 2, 120, { size: 96, weight: 900, outline: 16, color: C.ink })
-  text(ctx, 'Six stations to test your phone as a motion controller', W / 2, 375, { size: 26, weight: 700, color: C.quiet })
+  text(ctx, 'Seven stations to test your phone as a motion controller', W / 2, 375, { size: 26, weight: 700, color: C.quiet })
   titleMenu.draw(ctx, font(800, 32))
   drawPhoneChip(W / 2 - 230, 640)
   text(ctx, 'Also plays with a controller, keyboard, mouse or touch', W / 2, 712, { size: 22, weight: 600, color: C.quiet })
@@ -542,7 +557,7 @@ function drawPlay() {
       ctx.fillStyle = 'rgba(10,15,34,0.45)'
       ctx.fillRect(0, 0, W, H)
       text(ctx, go ? 'GO!' : 'READY', W / 2, H / 2 - 40, { size: 120 * k, weight: 900, outline: 18, color: go ? C.lime : C.ink })
-      text(ctx, state.station.centerOnReady && motion.phoneLive ? state.station.centerOnReady : state.station.howTo(input), W / 2, H / 2 + 60, { size: 30, weight: 700, outline: 8 })
+      text(ctx, state.station.centerOnReady && motion.phoneLive ? state.station.centerOnReady : state.station.howTo(input, motion), W / 2, H / 2 + 60, { size: 30, weight: 700, outline: 8 })
     }
   }
   drawPauseButton()
@@ -583,8 +598,8 @@ function drawHub() {
     panel(ctx, r.x, r.y + lift, r.w, r.h, { fill: on ? C.panelHi : C.panel, stroke: on ? C.orange : C.dark, lw: on ? 6 : 5 })
     if (s) {
       s.icon(ctx, r.x + r.w / 2, r.y + 84 + lift, 96)
-      text(ctx, s.name, r.x + r.w / 2, r.y + 162 + lift, { size: 28, weight: 800 })
-      text(ctx, s.blurb, r.x + r.w / 2, r.y + 194 + lift, { size: 19, weight: 600, color: C.quiet })
+      text(ctx, s.name, r.x + r.w / 2, r.y + 162 + lift, { size: 28, weight: 800, max: r.w - 24 })
+      text(ctx, s.blurb, r.x + r.w / 2, r.y + 194 + lift, { size: 19, weight: 600, color: C.quiet, max: r.w - 20 })
       if (!s.noScore) {
         drawMedal(ctx, r.x + 34, r.y + 34 + lift, 18, save.data.medals[s.id] ?? 0)
         const best = save.data.best[s.id]
@@ -592,8 +607,8 @@ function drawHub() {
       }
     } else if (tile.id === 'phone') {
       phoneGlyph(ctx, r.x + r.w / 2, r.y + 84 + lift, 52, 90, { screen: motion.phone ? C.lime : C.quiet })
-      text(ctx, motion.phone ? 'Phones' : 'Connect phone', r.x + r.w / 2, r.y + 162 + lift, { size: 28, weight: 800 })
-      text(ctx, 'QR code and room code', r.x + r.w / 2, r.y + 194 + lift, { size: 19, weight: 600, color: C.quiet })
+      text(ctx, motion.phone ? 'Phones' : 'Connect phone', r.x + r.w / 2, r.y + 162 + lift, { size: 28, weight: 800, max: r.w - 24 })
+      text(ctx, 'QR code and room code', r.x + r.w / 2, r.y + 194 + lift, { size: 19, weight: 600, color: C.quiet, max: r.w - 20 })
     } else {
       drawCog(r.x + r.w / 2, r.y + 84 + lift, 40)
       text(ctx, 'Settings', r.x + r.w / 2, r.y + 162 + lift, { size: 28, weight: 800 })

@@ -1,8 +1,8 @@
 # Motion Lab: design brief
 
-> Turn your phone into a motion controller and put it through six quick stations: tilt a marble through a maze, swing for the fences, slash fruit, shake a maraca on the beat and shoot ducks, with a live sensor bench to see exactly what the phone is sending.
+> Turn your phone into a motion controller and put it through seven quick stations: tilt a marble through a maze, swing for the fences, slash fruit, shake a maraca on the beat, steer a kart and use the phone as a light gun, with a live sensor bench to see exactly what the phone is sending.
 
-*Status: shipped · Version: 1.8.0*
+*Status: shipped · Version: 1.9.0*
 
 ## Kickoff
 | Topic | Answer |
@@ -14,7 +14,7 @@
 | Feel | Snappy and juicy: every motion gets instant, big feedback |
 | Camera / view | Fixed single screen per station; Home Run cuts to a field view for the ball flight |
 | Session and structure | Station hub; 60–90 s rounds ending in score, bronze/silver/gold medal and personal best; one-press retry |
-| Like which game? | Wii Sports, WarioWare: Smooth Moves, Fruit Ninja, Rhythm Heaven, toy kart racers |
+| Like which game? | Wii Sports, WarioWare: Smooth Moves, Fruit Ninja, Rhythm Heaven, toy kart racers, light-gun shooting galleries |
 | Audience and difficulty | The owner, testing; forgiving early, ramps within each round *(assumed)* |
 | Assets | Fully procedural *(assumed)* |
 | Sound and music | Generated SFX for every action; generated loops per station; the rhythm station has its own song *(assumed)* |
@@ -42,10 +42,10 @@
 |---|---|
 | Players | One (one active phone) |
 | Objectives | Beat each station's score for bronze/silver/gold |
-| Procedures | Tilt, swing in a direction, shake, press the phone's on-screen button |
-| Rules | Timed rounds; misses break combos; holes respawn the marble; grass slows the kart |
-| Resources | Time, combo, shells, swings (Derby has 10 pitches) |
-| Conflict | Faster pitches, denser fruit and notes, coins off the racing line, trickier mazes |
+| Procedures | Tilt, swing in a direction, shake, turn the phone to aim, press the phone's on-screen button |
+| Rules | Timed rounds; misses break combos; holes respawn the marble; grass slows the kart; shooting a bot costs points |
+| Resources | Time, combo, swings (Derby has 10 pitches) |
+| Conflict | Faster pitches, denser fruit and notes, coins off the racing line, trickier mazes, quicker sliding targets |
 | Boundaries | One screen per station; the phone is the controller |
 | Outcome | Score, medal, personal best |
 
@@ -58,6 +58,7 @@
 | Fruit Slash | directional flick (← → ↑ ↓) | (none) | d-pad / arrows / stick flick; mouse/touch swipe |
 | Maraca Rhythm | shake on the beat; big notes want a hard shake | (none) | `a` / click / tap on the beat |
 | Kart Dash | steering wheel: phone held up and turned (gravity across its face) | hold BRAKE | stick / arrows steer, `a` brakes; mouse/touch hold where to steer |
+| Blaster Range | light gun: phone held sideways in both hands, turned to aim (gyro, like a mouse) | FIRE (the whole screen, either thumb) | stick moves the sight + `a`; mouse/touch aim and click/tap |
 
 ## Controls
 | Input | Action |
@@ -65,7 +66,7 @@
 | Left stick / d-pad (`x`, `y`) | Hub: choose station. Stations: tilt stand-in, slash direction, sight |
 | `a` | Choose; swing / shake / fire stand-in |
 | `b` | Hub: back to title. Bench: back to stations. Otherwise unused in play |
-| `y` | Re-center tilt (also the phone's Re-center button) |
+| `y` | Re-center tilt (also the phone's Re-center button); Blaster Range: set the aim again |
 | `menu` (Start / Esc / on-screen button) | Pause |
 
 - **Inputs:** gamepad, keyboard, mouse, touch (all stations have fallbacks).
@@ -80,6 +81,8 @@
 | Toy kart racers | Top-down track, ghost of your best lap, coins on choice lines | Auto gas and a single BRAKE, so a phone held as a wheel is enough |
 | Rhythm Heaven / WarioWare Smooth Moves | Short motion verbs, clear cue → action | Phone motion with latency compensation |
 
+| Light-gun shooting galleries (and phone light-gun games) | Pop-up targets, a gun on screen with a tracer to the sight, set your aim by shooting, re-center by shooting off to the side | Toy test-range look; gyro aim with no camera; don't-shoot bots instead of reloading |
+
 **Twist:** it's a test lab: the Bench shows the raw signal and every station tells you how your motion was read.
 
 ## Art direction
@@ -87,17 +90,17 @@
 - **Palette:** `#0f1630` background with `#1a2550` grid, `#ff8a3d` orange (hero/accent), `#2ad1c9` teal, `#ff5c8a` pink, `#b6f04a` lime, `#ffd23f` gold, `#eef2ff` text
 - **Font:** Lilita One (display) and Rubik, bundled in `assets/fonts/` for the game and the art
 - **Rendering:** 2D canvas, procedural
-- **Cover idea:** a chunky phone tilted mid-swing with motion arcs, around it a kart, a fruit split and a baseball; "MOTION LAB" big
+- **Cover idea:** a chunky phone tilted mid-swing with motion arcs, around it a kart, a fruit split and a baseball; "MOTION LAB" big (Blaster Range isn't on the cover yet)
 - **Hero idea:** blueprint grid, the phone on the right with sensor waves and the station icons orbiting it
 
 ## Audio
-- **SFX:** tone/noise blips per action: bat crack, slice, maraca shaker noise, shotgun, marble roll/fall, medal fanfare.
+- **SFX:** tone/noise blips per action: bat crack, slice, maraca shaker noise, blaster shot, marble roll/fall, medal fanfare.
 - **Music:** a light generated loop on the hub; Rhythm has a beat-synced song scheduled on the audio clock.
 
 ## Scope
 **v1 must-haves**
 - Motion pipeline with calibration, swing detection on the phone, latency ping, phone touch fallback
-- Hub with medals; six stations; results screen with medal and best; save
+- Hub with medals; seven stations; results screen with medal and best; save
 - Custom phone screen per station (status, big button where the station uses one)
 
 **Stretch**
@@ -128,12 +131,34 @@
 - [x] `TUNING`, clamped `dt`, `?debug` overlay, runtime files unedited, `npm run check` green
 
 ## Open questions / assumptions
-- Phones are held in portrait. Swing direction is read in the phone's own axes; "Invert swipes" in Settings flips it if a phone reports the other way.
+- Phones are held in portrait, except Kart Dash (sideways, as a wheel) and Blaster Range (sideways, as a light gun). Swing direction is read in the phone's own axes; "Invert swipes" in Settings flips it if a phone reports the other way.
 - Motion only works when the phone joins over HTTPS (the published build). Over local `npm run dev` the phone uses its touch pad.
 - The kit's lobby only starts on A, so the lobby also draws Start / Back buttons for mouse and touch.
 - Known gaps: landscape remapping is tested with simulated sensors only, so check it on a real phone in the Bench (Screen turn row); no personal full-swing scale yet; the library screenshot shows the connect screen, not a station.
 
+## Blaster Range: aiming without knowing where the TV is
+A phone can't tell where the TV is (1.8.0 below), so Blaster Range doesn't try to make the sight land where the phone physically points. The gyro moves the sight like a mouse, and the player's eyes close the loop. What keeps that working over a whole round:
+
+- **Set the aim by shooting.** Each round starts with a centre target ("Set your aim"); pulling the trigger while pointing at it puts the sight in the middle. The clock waits.
+- **Edges soak up drift.** The sight stops at the screen edges and any further turn is dropped, like a mouse at the edge of its pad, so slow drift is lost there.
+- **Re-center without looking down.** RECENTER AIM sits on the front counter: aim down and shoot it, then shoot the centre target again. The phone's Re-center button and `y` do the same.
+- **Shots are judged when the trigger was pulled.** The phone counts trigger presses (`fc`) and stamps the last one (`ft`) on its clock; the TV maps that through the clock sync to `motion.fireAt` and checks targets where they were then (up to `rewindMax`, 0.3 s), so network lag doesn't cost hits. The counter also catches taps shorter than a network update, and a second thumb landing while the first rests on the button.
+- **A light gun feel.** A toy blaster in the corner tracks the sight with a tracer on every shot; the sight is a little sticky over targets (aim assist slows it, it never pulls); the phone's whole screen is the trigger (`public.layout = 'trigger'`).
+
+```mermaid
+stateDiagram-v2
+    [*] --> SetAim: round starts (phone motion on)
+    [*] --> Play: controller, keyboard, mouse or touch pad
+    SetAim --> Play: FIRE while pointing at the centre target (sight to centre)
+    Play --> SetAim: shoot RECENTER AIM, or the phone's Re-center, or y
+    Play --> [*]: 60 s up
+    note right of SetAim: clock and targets wait
+```
+
+Medals (5000 / 12500 / 16000) come from simulated players with lag and drift: a good one averages about 17,000 (gold), a casual one about 12,000 (bronze, sometimes silver), a newcomer about 3,800.
+
 ## Changelog
+- 1.9.0: **Blaster Range**, a light-gun station: hold the phone sideways in both hands, turn it to aim, tap anywhere on its screen to fire. 60 s of pop-up targets on three rails (sliding ones speed up, gold ones score triple, don't-shoot bots cost 150 and the combo); combos raise points up to ×2, bullseyes +50. Aim is gyro-as-mouse with set-your-aim by shooting a centre target, edge clamping, and RECENTER AIM on the counter (see "Blaster Range: aiming…" above). The TV side has gyro deltas again (`motion.gyro`, `motion.gyroAhead`); the phone counts and time-stamps trigger presses (`fc`, `ft` → `motion.fireAt`) and has a full-screen trigger layout. The hub is a 5 × 2 grid. Tests: `npm test` (station and motion behaviour, no dependencies).
 - 1.8.1: Build kit v6. Inside the launcher the pause menu ends with **Quit to library** (added by `menu.js`), so players can always find their way back to their games.
 - 1.8.0: **Kart Dash replaces Duck Shoot.** Pointing at the screen can't be made to feel right with a phone: a Wii pointer works because the remote's camera sees the sensor bar, but a phone only knows how it turns, not where the TV is or where your arm is. So "where it points" is always relative to the last re-center, the heading drifts a few degrees a minute, position from the accelerometer drifts away within a second, and the network adds 50–150 ms. Gyro aiming (Splatoon-style) is the best that's possible, and casual players find it strange (two playtests agreed). Steering is the opposite: `motion.wheel` is gravity's angle across the phone's face, absolute, drift-free and unbothered by lag. Kart Dash is a 75 s top-down time trial: phone sideways as a wheel, automatic gas, hold BRAKE for tight corners, 100 per lap and 10 per coin, and your best lap drives beside you as a ghost (best lap saved). The centre is taken during the countdown. Simulated drivers: a good one gets gold (5 laps, ~1100), a laggy, wobbly casual one bronze (3 laps, ~610). The pointing and gyro-cursor code left the TV side; the phone engine still sends gyro totals for other games.
 - 1.7.1: Second playtest. Duck Shoot needs far less turning: about 55 px per degree across and 65 up/down (TUNING.motion.pointPxX/Y; before it was 30, so about 21° to an edge), so moving your arm is enough. Marble Maze and Duck Shoot take their centre from how you hold the phone during the round's countdown (now 2 s, "Hold the phone comfortably" / "Point at the middle"). Before, Maze used a level pose saved from another station (e.g. an upright Duck Shoot re-center), so you had to tilt a long way to roll down.
