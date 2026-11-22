@@ -110,7 +110,8 @@
        * a swing's moment is known to the millisecond. It also:
        *   - takes readings from the join page (which iOS sends them to) or from this frame (which
        *     Android sends them to once it's tapped), whichever is fresh;
-       *   - turns axes with the screen, so landscape doesn't rotate swipes;
+       *   - turns axes with the screen, so landscape doesn't rotate swipes; gyro aiming goes by
+       *     gravity instead, so it works with rotation lock on;
        *   - learns the gyro's drift while the phone lies still and takes it off;
        *   - gives tilt as the direction of "up" (no gimbal flip near upright), gyro aiming as
        *     running totals (a lost message loses nothing), a live strength, and stillness;
@@ -134,6 +135,8 @@
         const direct = { last: -1e9, ori: null }
         const bias = [0, 0, 0]
         const hist = []
+        let upDev = null // "up" in the phone's own axes, once a real orientation reading has come
+        let level = [1, 0] // the level axis across the aim (x, y in the phone's own axes)
         let lastT = -Infinity
         let stillFor = 0
         let restFor = 0
@@ -208,8 +211,10 @@
           // Up, from the phone's own (sensor-fused) orientation, in screen axes.
           const rb = (pm.ori.b * Math.PI) / 180
           const rg = (pm.ori.g * Math.PI) / 180
-          const [ux, uy] = toScreen(-Math.sin(rg) * Math.cos(rb), Math.sin(rb))
-          pm.up = [ux, uy, Math.cos(rg) * Math.cos(rb)]
+          const dev = [-Math.sin(rg) * Math.cos(rb), Math.sin(rb), Math.cos(rg) * Math.cos(rb)]
+          if (o) upDev = dev
+          const [ux, uy] = toScreen(dev[0], dev[1])
+          pm.up = [ux, uy, dev[2]]
           const [ax, ay] = toScreen(a[0], a[1])
           const az = a[2]
           const am = Math.hypot(ax, ay, az)
@@ -224,7 +229,9 @@
           const dx = (ax * rx + ay * ry + az * rz) / rl
           const dy = ax * qx + ay * qy + az * qz
 
-          // Gyro: rotation about the phone's z (alpha), x (beta) and y (gamma), in deg/s.
+          // Gyro: turning about the phone's own x, y and z, in deg/s. The browser names these
+          // rates alpha, beta, gamma, and (unlike the orientation angles of the same names) that
+          // is x, y, z in that order: the spec's getters, Chrome and Safari all agree.
           let wx = 0
           let wy = 0
           let wz = 0
@@ -239,10 +246,12 @@
             restFor = Math.hypot(...w) < 1.5 && am < 0.15 ? restFor + dt : 0
             if (restFor > 1.5) for (let i = 0; i < 3; i++) bias[i] = clamp(bias[i] + (w[i] - bias[i]) * Math.min(1, dt * 0.3), -1.5, 1.5)
             pm.bias = round(Math.hypot(...bias))
-            wz = w[0] - bias[0]
-            ;[wx, wy] = toScreen(w[1] - bias[1], w[2] - bias[2])
+            const turn = [w[0] - bias[0], w[1] - bias[1], w[2] - bias[2]]
+            ;[wx, wy] = toScreen(turn[0], turn[1])
+            wz = turn[2]
             wm = Math.hypot(wx, wy, wz)
-            gyroAim(wx, wy, wz, dt)
+            // Until a real orientation reading arrives, which way is up would be a guess.
+            if (upDev) gyroAim(turn, upDev, dt)
           } else stillFor = am < 0.35 ? stillFor + dt : 0
           pm.still = stillFor > 0.25
           const c = cfg()
@@ -253,15 +262,21 @@
 
         /**
          * Gyro aiming, the way Steam Input and JoyShockMapper do it: turning speed moves the sight
-         * like a mouse. Left/right is turning around the real vertical, so it works however the
-         * phone is held; up/down is tipping the top. Tremor is tightened toward zero, slow moves
-         * are smoothed and fast ones go straight through.
+         * like a mouse. Both directions go by gravity, in the phone's own axes (w and up), so they
+         * work however the phone is held and whether or not the screen has turned with it:
+         * left/right is turning around the real vertical; up/down is turning around the level
+         * axis across the aim (the back of the phone points at the TV), so rolling the phone like
+         * a wheel moves nothing. Tremor is tightened toward zero, slow moves are smoothed and
+         * fast ones go straight through.
          */
-        function gyroAim(wx, wy, wz, dt) {
+        function gyroAim(w, up, dt) {
           const c = cfg()
-          const [ux, uy, uz] = pm.up
-          let yaw = wx * ux + wy * uy + wz * uz // turning left is positive
-          let pitch = wx // tipping the top up is positive
+          // The level axis is "up" crossed with the screen's own axis. Lying flat it has no
+          // direction (the back points at the floor): keep the last one.
+          const flat = Math.hypot(up[0], up[1])
+          if (flat > 0.25) level = [up[1] / flat, -up[0] / flat]
+          let yaw = w[0] * up[0] + w[1] * up[1] + w[2] * up[2] // turning left is positive
+          let pitch = w[0] * level[0] + w[1] * level[1] // the aim rising is positive
           const speed = Math.hypot(yaw, pitch)
           const tighten = c.tighten ?? 1.5
           if (speed < tighten && speed > 0) {
