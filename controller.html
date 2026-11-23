@@ -112,6 +112,9 @@
       </section>
     </main>
     <script>
+      // This screen draws its own menus and safety card: keep controller.js's built-in ones off.
+      controller.menuScreen = false
+      controller.safetyScreen = false
       const $ = (id) => document.getElementById(id)
       const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
       const round = (v, k = 10) => Math.round(v * k) / k
