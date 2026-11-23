@@ -14,6 +14,7 @@ import { drawPrompts } from './prompts.js'
 import { createParty } from './party.js'
 import { createPartyLobby, drawJoinBadge } from './party-lobby.js'
 import { createMotion } from './motion.js'
+import { createSafetyGate } from './safety.js'
 import { createSfx, createSequencer, loopSong } from './sfx.js'
 import { C, W, H, MEDAL_NAMES, createFx, drawGrid, drawMedal, easeOutBack, finish, font, gloss, panel, phoneGlyph, rrect, setTextScale, text, clamp } from './gfx.js'
 import { medalBy } from './stations/common.js'
@@ -30,6 +31,7 @@ const ID = 'motion-lab'
 /** Every gameplay number. Stations read their own section. */
 const TUNING = {
   readyTime: 2, // the countdown; stations with centerOnReady also take their centre during it
+  safetyMin: 2.5, // seconds the safety screen stays up before this machine can skip it
   motion: {
     tiltRange: 25, // degrees from neutral for full tilt (divided by the sensitivity setting)
     defaultBeta: 35,
@@ -114,7 +116,8 @@ const state = {
   results: null,
   t: 0
 }
-const motion = createMotion({ party, input, settings, save, TUNING, sfx, isBlocked: () => state.screen !== 'playing' || state.ready > 0 })
+const motion = createMotion({ party, input, settings, save, TUNING, sfx, isBlocked: () => state.screen !== 'playing' || state.ready > 0 || safety.held })
+const safety = createSafetyGate({ min: TUNING.safetyMin })
 window.__game = { state, TUNING, party, motion, settings, save, get titleMenu() { return titleMenu }, start: (id) => startStation(STATIONS.find((s) => s.id === id)) }
 const debug = new URLSearchParams(location.search).has('debug')
 const env = { motion, sfx, fx, input, settings, save, audio, seq, TUNING }
@@ -189,6 +192,10 @@ party.on('msg', ({ from, data }) => {
   if (typeof data.choose === 'string') chooseQueued = data.choose
 })
 party.on('msg', ({ from, data }) => {
+  // The phone has read the safety card.
+  if (data?.safe && party.player(from)?.kind === 'phone') safety.read(from)
+})
+party.on('msg', ({ from, data }) => {
   // The first phone's Start button in the lobby is handled by party-lobby; nothing else to do.
   if (data?.center && from === motion.activeId) party.view(from).n = { ...motion.neutral }
 })
@@ -231,8 +238,10 @@ function startStation(station) {
   fx.reset()
   state.run = station.create(env)
   state.ready = station.noScore ? 0 : TUNING.readyTime
+  // Before the first motion with a phone: the safety screen, until that phone has read it.
+  const held = safety.hold(motion.phoneLive ? motion.activeId : null)
   // Stations that need a fresh centre take it from how the phone is held during the countdown.
-  if (station.centerOnReady && state.ready > 0) motion.center()
+  if (!held && station.centerOnReady && state.ready > 0) motion.center()
   state.screen = 'playing'
   party.public.paused = false
   save.data.plays[station.id] = (save.data.plays[station.id] ?? 0) + 1
@@ -240,6 +249,15 @@ function startStation(station) {
   if (station.music) seq.play(loopSong(sfx, station.music))
   sfx.pick()
 }
+const SAFETY_OK = { x: W / 2 - 110, y: 676, w: 220, h: 64 }
+/** The safety screen: it waits for the phone's "I'm ready", or A / Start now after a moment. */
+function safetyUpdate(dt) {
+  const skip = ui.pressed('a') || (input.pointer.pressed && inside(input.pointer, SAFETY_OK))
+  if (!safety.update(dt, { skip, phone: motion.phoneLive ? motion.activeId : null })) return
+  sfx.pick()
+  if (state.station.centerOnReady && state.ready > 0) motion.center()
+}
+
 function finishStation() {
   const s = state.station
   const run = state.run
@@ -358,6 +376,7 @@ function playUpdate(dt) {
   seq.update(dt)
   if (input.pressed('y')) motion.center()
   if (!state.run) return hubUpdate(dt)
+  if (safety.held) return safetyUpdate(dt)
 
   if (fx.stop > 0) {
     fx.stop -= dt
@@ -428,7 +447,7 @@ function publish() {
   party.public.layout = s && state.screen === 'playing' ? s.layout ?? null : null
   // 'play' during a round (motion, station button, Pause); 'menu' everywhere else (D-pad, OK, Back).
   const round = state.screen === 'playing' && state.run
-  party.public.mode = round ? (state.station.noScore ? 'bench' : 'play') : 'menu'
+  party.public.mode = round ? (safety.held ? 'safety' : state.station.noScore ? 'bench' : 'play') : 'menu'
   // Title, pause and results menus also appear on the phone as buttons to tap.
   const menu = { title: titleMenu, paused: pauseMenu, gameover: resultsMenu }[state.screen]
   party.public.menu = menu ? { heading: { title: 'Motion Lab', paused: 'Paused', gameover: 'Round over' }[state.screen], items: menu.items.filter((it) => !it.disabled).map((it) => ({ id: it.id, label: it.label })), sel: menu.selected?.id } : null
@@ -551,7 +570,8 @@ function drawPlay() {
     finish(ctx)
     finished = true
     drawHud()
-    if (state.ready > 0) {
+    if (safety.held) drawSafety()
+    else if (state.ready > 0) {
       const go = state.ready <= 0.4
       const k = go ? 1 + (0.4 - state.ready) * 1.5 : 1
       ctx.fillStyle = 'rgba(10,15,34,0.45)'
@@ -561,6 +581,48 @@ function drawPlay() {
     }
   }
   drawPauseButton()
+}
+
+/** Before you move: room, grip, smooth beats wild. */
+function drawSafety() {
+  ctx.fillStyle = 'rgba(10,15,34,0.78)'
+  ctx.fillRect(0, 0, W, H)
+  panel(ctx, W / 2 - 430, 70, 860, 680, { fill: C.panel, r: 26 })
+  text(ctx, 'Before you move', W / 2, 130, { size: 58, weight: 900, color: C.gold, outline: 10 })
+  const tips = [
+    ['Give yourself room', 'Swings, flicks and shakes need space: keep clear of people, pets, the TV and lamps.', C.teal],
+    ['Hold on tight', 'Keep a firm grip on your phone the whole time. A grippy case or a wrist strap helps.', C.pink],
+    ['Smooth beats wild', 'A quick, controlled motion reads just as well as a wild one. Never let go of the phone.', C.lime]
+  ]
+  tips.forEach(([t, line, color], i) => {
+    const y = 210 + i * 130
+    gloss(ctx, W / 2 - 350, y + 22, 32, color)
+    text(ctx, t, W / 2 - 296, y, { size: 32, weight: 800, align: 'left' })
+    wrapText(line, W / 2 - 296, y + 44, 640, { size: 22, weight: 600, align: 'left', color: C.quiet })
+  })
+  text(ctx, 'Tap I’m ready on your phone', W / 2, 620, { size: 24, weight: 700 })
+  if (safety.canSkip) {
+    if (input.mode === 'touch' || input.mode === 'mouse') {
+      panel(ctx, SAFETY_OK.x, SAFETY_OK.y, SAFETY_OK.w, SAFETY_OK.h, { fill: C.gold, r: 32, lw: 0 })
+      text(ctx, 'Start now', W / 2, SAFETY_OK.y + SAFETY_OK.h / 2, { size: 26, weight: 800, color: C.dark })
+    } else text(ctx, `${input.label('a')} to start now`, W / 2, 706, { size: 24, weight: 800, color: C.gold })
+  }
+}
+
+/** Text wrapped to a width, left aligned, 28 px between lines. */
+function wrapText(str, x, y, width, opts) {
+  ctx.font = font(opts.weight, opts.size)
+  let line = ''
+  let yy = y
+  for (const w of str.split(' ')) {
+    const next = line ? `${line} ${w}` : w
+    if (ctx.measureText(next).width > width && line) {
+      text(ctx, line, x, yy, opts)
+      line = w
+      yy += 28
+    } else line = next
+  }
+  if (line) text(ctx, line, x, yy, opts)
 }
 
 function drawHud() {

@@ -9,7 +9,8 @@
          sends each with its moment on this phone's clock (controller.send { swing: { dir, p, m, pt } });
          the TV's pings carry the clock check back. A swing meter shows strength against the
          threshold. Without motion sensors (plain http, a desktop browser, permission denied) it
-         becomes a touch pad. -->
+         becomes a touch pad. Before the first motion with this phone the TV asks for the safety card
+         (public.mode 'safety'): it covers everything until "I'm ready" sends { safe: true }. -->
     <style>
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
       html, body { margin: 0; height: 100%; background: #0f1630; color: #eef2ff; font: 18px/1.35 system-ui, sans-serif; overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: none; }
@@ -67,6 +68,13 @@
       main.trigger #big { width: 100%; flex: 1; aspect-ratio: auto; min-height: 0; border-radius: 28px; font-size: 52px; box-shadow: 0 8px 0 #0a0f22; }
       main.trigger #big.down { box-shadow: 0 2px 0 #0a0f22; }
       main.trigger #meter, main.trigger #swing { display: none; }
+      #safety { position: absolute; inset: 0; z-index: 5; background: #0f1630; display: flex; flex-direction: column; gap: 14px; padding: 22px 18px calc(22px + env(safe-area-inset-bottom, 0px)); overflow-y: auto; }
+      #safety h1 { font-size: 30px; color: #ffd23f; margin: 0; }
+      #safety .tip { display: flex; gap: 14px; align-items: flex-start; background: #18224a; border: 3px solid #0a0f22; border-radius: 18px; padding: 14px 16px; }
+      #safety .tip b { display: block; font-size: 20px; margin-bottom: 2px; }
+      #safety .tip span { color: #9aa6d6; font-weight: 600; font-size: 16px; }
+      #safety .badge { flex: none; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+      #ready { margin-top: auto; background: #b6f04a; color: #0a0f22; font-size: 26px; min-height: 68px; }
       [hidden] { display: none !important; }
     </style>
   </head>
@@ -95,6 +103,13 @@
       </div>
       <button id="take" hidden>Use this phone</button>
       <div class="row" id="playrow"><button data-nav="menu" class="pause" id="pause">Pause</button><button data-nav="b" class="back" id="benchback">Back</button><button id="center">Re-center</button></div>
+      <section id="safety" hidden aria-labelledby="safety-title">
+        <h1 id="safety-title">Before you move</h1>
+        <div class="tip"><span class="badge" style="background:#2ad1c9"><svg width="26" height="26" viewBox="-13 -13 26 26" fill="none" stroke="#0a0f22" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><circle cx="0" cy="-7" r="3" fill="#0a0f22" stroke="none"/><path d="M0 -3V5M-9 -1H9M0 5L-5 11M0 5L5 11"/></svg></span><div><b>Give yourself room</b><span>Swings, flicks and shakes need space: keep clear of people, pets, the TV and lamps.</span></div></div>
+        <div class="tip"><span class="badge" style="background:#ff5c8a"><svg width="26" height="26" viewBox="-13 -13 26 26" fill="none" stroke="#0a0f22" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><rect x="-4" y="-10" width="8" height="15" rx="2"/><circle cx="-5" cy="3" r="3.5" fill="#0a0f22" stroke="none"/><circle cx="5" cy="3" r="3.5" fill="#0a0f22" stroke="none"/></svg></span><div><b>Hold on tight</b><span>Keep a firm grip on your phone the whole time. A grippy case or a wrist strap helps.</span></div></div>
+        <div class="tip"><span class="badge" style="background:#b6f04a"><svg width="26" height="26" viewBox="-13 -13 26 26" fill="none" stroke="#0a0f22" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M-10 -2A11 11 0 0 0 10 -2"/><circle cx="10" cy="-6" r="2.6" fill="#0a0f22" stroke="none"/></svg></span><div><b>Smooth beats wild</b><span>A quick, controlled motion reads just as well as a wild one. Never let go of the phone.</span></div></div>
+        <button id="ready">I’m ready</button>
+      </section>
     </main>
     <script>
       const $ = (id) => document.getElementById(id)
@@ -494,6 +509,15 @@
         controller.send({ center: true })
         controller.vibrate(20)
       }
+      // The safety card: the TV asks for it before the first motion with this phone.
+      let readTapped = false
+      $('ready').onclick = () => {
+        readTapped = true
+        controller.send({ safe: true })
+        controller.vibrate(20)
+        render()
+      }
+
       $('take').onclick = () => {
         controller.send({ take: true })
         controller.vibrate(30)
@@ -537,6 +561,8 @@
         $('level').hidden = touch || standby || Boolean(pub.btn)
         big.hidden = !pub.btn || standby
         big.textContent = pub.btn ?? ''
+        if (pub.mode !== 'safety') readTapped = false // the next ask (another phone, a new party) shows it again
+        $('safety').hidden = !(pub.mode === 'safety' && !standby && !readTapped)
         const menu = !standby && (pub.mode ?? 'menu') === 'menu'
         $('menupad').hidden = !menu
         $('stage').hidden = menu || standby
